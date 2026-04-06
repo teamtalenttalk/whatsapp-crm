@@ -24,7 +24,8 @@ export default function DevicesPage() {
   const loadDevices = useCallback(async () => {
     try {
       const data = await getDevices();
-      setDevices(Array.isArray(data) ? data : []);
+      const list = data?.devices || data;
+      setDevices(Array.isArray(list) ? list : []);
     } catch {
       // ignore
     } finally {
