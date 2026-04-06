@@ -116,6 +116,92 @@ function initDB() {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Devices (multiple WhatsApp instances per tenant)
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT DEFAULT 'My Device',
+      phone_number TEXT,
+      status TEXT DEFAULT 'disconnected',
+      profile_pic TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Welcome messages
+    CREATE TABLE IF NOT EXISTS welcome_messages (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      device_id TEXT,
+      enabled INTEGER DEFAULT 1,
+      message_type TEXT DEFAULT 'text',
+      message TEXT NOT NULL,
+      buttons TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Auto reply rules
+    CREATE TABLE IF NOT EXISTS auto_replies (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      device_id TEXT,
+      enabled INTEGER DEFAULT 1,
+      keyword TEXT NOT NULL,
+      match_type TEXT DEFAULT 'contains',
+      message_type TEXT DEFAULT 'text',
+      message TEXT NOT NULL,
+      buttons TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Message templates
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      message_type TEXT DEFAULT 'text',
+      message TEXT NOT NULL,
+      buttons TEXT,
+      media_url TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Contact groups
+    CREATE TABLE IF NOT EXISTS contact_groups (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Contact group members
+    CREATE TABLE IF NOT EXISTS contact_group_members (
+      group_id TEXT NOT NULL REFERENCES contact_groups(id),
+      contact_id TEXT NOT NULL REFERENCES contacts(id),
+      PRIMARY KEY (group_id, contact_id)
+    );
+
+    -- Unsubscribes (opt-out list)
+    CREATE TABLE IF NOT EXISTS unsubscribes (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      phone TEXT NOT NULL,
+      name TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, phone)
+    );
+
+    -- Number filter results
+    CREATE TABLE IF NOT EXISTS number_filter_results (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      phone TEXT NOT NULL,
+      name TEXT,
+      is_whatsapp INTEGER,
+      account_type TEXT,
+      checked_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id);
@@ -123,7 +209,22 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_messages_jid ON messages(remote_jid, tenant_id);
     CREATE INDEX IF NOT EXISTS idx_campaigns_tenant ON campaigns(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_appointments_tenant ON appointments(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_welcome_messages_tenant ON welcome_messages(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_auto_replies_tenant ON auto_replies(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_templates_tenant ON templates(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_contact_groups_tenant ON contact_groups(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_unsubscribes_tenant ON unsubscribes(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_number_filter_tenant ON number_filter_results(tenant_id);
   `);
+
+  // Add variable1, variable2 columns to contacts if they don't exist
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN variable1 TEXT`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN variable2 TEXT`);
+  } catch (e) { /* column already exists */ }
 
   console.log('Database initialized');
 }

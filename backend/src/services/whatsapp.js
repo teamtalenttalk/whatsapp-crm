@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { db } = require('../database');
 
-// Store active WhatsApp connections per tenant
+// Store active WhatsApp connections per device (keyed by deviceId)
 const connections = new Map();
 let io = null;
 
@@ -12,18 +12,41 @@ function setSocketIO(socketIO) {
   io = socketIO;
 }
 
-function getConnection(tenantId) {
-  return connections.get(tenantId);
+function getConnection(deviceId) {
+  return connections.get(deviceId);
 }
 
-async function connectWhatsApp(tenantId) {
-  // Prevent duplicate connections
-  const existing = connections.get(tenantId);
-  if (existing && existing.sock) {
-    return { status: 'already_connected' };
+// Legacy helper: get any connected device for a tenant (used by old routes)
+function getConnectionByTenant(tenantId) {
+  for (const [deviceId, conn] of connections.entries()) {
+    if (conn.tenantId === tenantId && conn.status === 'connected') {
+      return conn;
+    }
+  }
+  return null;
+}
+
+async function connectWhatsApp(tenantId, deviceId) {
+  // If no deviceId provided, fall back to legacy tenant-level connection
+  if (!deviceId) {
+    // Check for a default device
+    let device = db.prepare('SELECT id FROM devices WHERE tenant_id = ? LIMIT 1').get(tenantId);
+    if (!device) {
+      // Create a default device
+      deviceId = uuid();
+      db.prepare(`INSERT INTO devices (id, tenant_id, name) VALUES (?, ?, 'Default Device')`).run(deviceId, tenantId);
+    } else {
+      deviceId = device.id;
+    }
   }
 
-  const sessionsDir = path.join(__dirname, '..', '..', 'data', 'sessions', tenantId);
+  // Prevent duplicate connections
+  const existing = connections.get(deviceId);
+  if (existing && existing.sock) {
+    return { status: 'already_connected', deviceId };
+  }
+
+  const sessionsDir = path.join(__dirname, '..', '..', 'data', 'sessions', tenantId, deviceId);
   if (!fs.existsSync(sessionsDir)) {
     fs.mkdirSync(sessionsDir, { recursive: true });
   }
@@ -43,10 +66,13 @@ async function connectWhatsApp(tenantId) {
     syncFullHistory: false,
   });
 
-  connections.set(tenantId, { sock, status: 'connecting' });
+  connections.set(deviceId, { sock, status: 'connecting', tenantId, deviceId });
 
-  // Update session status in DB
+  // Update device + session status in DB
   const updateStatus = (status, phone) => {
+    db.prepare(`UPDATE devices SET status = ?, phone_number = COALESCE(?, phone_number), updated_at = datetime('now') WHERE id = ?`).run(status, phone || null, deviceId);
+
+    // Also update legacy wa_sessions table
     const session = db.prepare('SELECT id FROM wa_sessions WHERE tenant_id = ?').get(tenantId);
     if (session) {
       db.prepare(`UPDATE wa_sessions SET status = ?, phone_number = COALESCE(?, phone_number), updated_at = datetime('now') WHERE tenant_id = ?`).run(status, phone || null, tenantId);
@@ -55,7 +81,7 @@ async function connectWhatsApp(tenantId) {
     }
     // Notify frontend via socket
     if (io) {
-      io.to(`tenant:${tenantId}`).emit('wa:status', { status, phone });
+      io.to(`tenant:${tenantId}`).emit('wa:status', { status, phone, deviceId });
     }
   };
 
@@ -63,41 +89,41 @@ async function connectWhatsApp(tenantId) {
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
-    console.log(`[WA] connection.update for ${tenantId}:`, JSON.stringify({ connection, hasQR: !!qr, qrLen: qr?.length }));
+    console.log(`[WA] connection.update for device ${deviceId} (tenant ${tenantId}):`, JSON.stringify({ connection, hasQR: !!qr, qrLen: qr?.length }));
 
     if (qr) {
-      connections.set(tenantId, { ...connections.get(tenantId), status: 'qr', qr });
+      connections.set(deviceId, { ...connections.get(deviceId), status: 'qr', qr });
       updateStatus('waiting_qr');
       if (io) {
-        io.to(`tenant:${tenantId}`).emit('wa:qr', { qr });
+        io.to(`tenant:${tenantId}`).emit('wa:qr', { qr, deviceId });
       }
     }
 
     if (connection === 'open') {
       const phone = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '';
-      connections.set(tenantId, { ...connections.get(tenantId), status: 'connected', qr: null });
+      connections.set(deviceId, { ...connections.get(deviceId), status: 'connected', qr: null });
       updateStatus('connected', phone);
       if (io) {
-        io.to(`tenant:${tenantId}`).emit('wa:connected', { phone });
+        io.to(`tenant:${tenantId}`).emit('wa:connected', { phone, deviceId });
       }
-      console.log(`[WA] Tenant ${tenantId} connected: ${phone}`);
+      console.log(`[WA] Device ${deviceId} (tenant ${tenantId}) connected: ${phone}`);
     }
 
     if (connection === 'close') {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-      connections.set(tenantId, { ...connections.get(tenantId), status: 'disconnected', qr: null });
+      connections.set(deviceId, { ...connections.get(deviceId), status: 'disconnected', qr: null });
       updateStatus('disconnected');
       if (io) {
-        io.to(`tenant:${tenantId}`).emit('wa:disconnected', {});
+        io.to(`tenant:${tenantId}`).emit('wa:disconnected', { deviceId });
       }
-      console.log(`[WA] Tenant ${tenantId} disconnected. Code: ${statusCode}, Reconnect: ${shouldReconnect}`);
+      console.log(`[WA] Device ${deviceId} disconnected. Code: ${statusCode}, Reconnect: ${shouldReconnect}`);
 
       if (shouldReconnect) {
-        setTimeout(() => connectWhatsApp(tenantId), 3000);
+        setTimeout(() => connectWhatsApp(tenantId, deviceId), 3000);
       } else {
-        connections.delete(tenantId);
+        connections.delete(deviceId);
         // Clear session files on logout
         if (fs.existsSync(sessionsDir)) {
           fs.rmSync(sessionsDir, { recursive: true, force: true });
@@ -150,7 +176,6 @@ async function connectWhatsApp(tenantId) {
         db.prepare('INSERT INTO contacts (id, tenant_id, phone, name) VALUES (?, ?, ?, ?)').run(contactId, tenantId, phone, pushName);
         contact = { id: contactId };
       } else {
-        // Update name if we got a push name
         if (pushName && pushName !== phone) {
           db.prepare(`UPDATE contacts SET name = ?, updated_at = datetime('now') WHERE id = ?`).run(pushName, contact.id);
         }
@@ -172,16 +197,87 @@ async function connectWhatsApp(tenantId) {
           direction: 'incoming',
           messageType,
           content,
+          deviceId,
           timestamp: new Date(msg.messageTimestamp * 1000).toISOString(),
         });
       }
 
-      // Check chatbot auto-reply
-      await handleChatbotReply(tenantId, remoteJid, contact.id, content, sock);
+      // Check auto-reply rules first, then fall back to chatbot
+      const handled = await handleAutoReply(tenantId, deviceId, remoteJid, contact.id, content, sock);
+      if (!handled) {
+        await handleChatbotReply(tenantId, remoteJid, contact.id, content, sock);
+      }
+
+      // Check welcome message for first-time contacts
+      await handleWelcomeMessage(tenantId, deviceId, remoteJid, contact.id, phone, sock);
     }
   });
 
-  return { status: 'connecting' };
+  return { status: 'connecting', deviceId };
+}
+
+async function handleAutoReply(tenantId, deviceId, remoteJid, contactId, incomingText, sock) {
+  const rules = db.prepare(
+    `SELECT * FROM auto_replies WHERE tenant_id = ? AND enabled = 1 AND (device_id IS NULL OR device_id = ?)`
+  ).all(tenantId, deviceId);
+
+  for (const rule of rules) {
+    let matched = false;
+    const keyword = rule.keyword.toLowerCase();
+    const text = incomingText.toLowerCase();
+
+    if (rule.match_type === 'exact') {
+      matched = text === keyword;
+    } else {
+      matched = text.includes(keyword);
+    }
+
+    if (matched) {
+      try {
+        await sock.sendMessage(remoteJid, { text: rule.message });
+        const msgId = uuid();
+        db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, is_bot_reply, timestamp) VALUES (?, ?, ?, ?, 'outgoing', ?, 1, datetime('now'))`).run(
+          msgId, tenantId, contactId, remoteJid, rule.message
+        );
+        if (io) {
+          io.to(`tenant:${tenantId}`).emit('wa:message', {
+            id: msgId, contactId, direction: 'outgoing', content: rule.message, isBotReply: true, deviceId, timestamp: new Date().toISOString(),
+          });
+        }
+        return true;
+      } catch (err) {
+        console.error('Auto-reply send error:', err.message);
+      }
+    }
+  }
+  return false;
+}
+
+async function handleWelcomeMessage(tenantId, deviceId, remoteJid, contactId, phone, sock) {
+  // Only send welcome to first-time contacts (1 incoming message = first)
+  const msgCount = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND remote_jid = ? AND direction = 'incoming'`).get(tenantId, remoteJid);
+  if (msgCount.cnt > 1) return;
+
+  const welcome = db.prepare(
+    `SELECT * FROM welcome_messages WHERE tenant_id = ? AND enabled = 1 AND (device_id IS NULL OR device_id = ?) LIMIT 1`
+  ).get(tenantId, deviceId);
+
+  if (!welcome) return;
+
+  try {
+    await sock.sendMessage(remoteJid, { text: welcome.message });
+    const msgId = uuid();
+    db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, is_bot_reply, timestamp) VALUES (?, ?, ?, ?, 'outgoing', ?, 1, datetime('now'))`).run(
+      msgId, tenantId, contactId, remoteJid, welcome.message
+    );
+    if (io) {
+      io.to(`tenant:${tenantId}`).emit('wa:message', {
+        id: msgId, contactId, direction: 'outgoing', content: welcome.message, isBotReply: true, deviceId, timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (err) {
+    console.error('Welcome message send error:', err.message);
+  }
 }
 
 async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, sock) {
@@ -191,7 +287,6 @@ async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, 
   let replyText = '';
 
   if (config.ai_enabled && process.env.GEMINI_API_KEY) {
-    // AI-powered reply using Gemini
     try {
       const { GoogleGenerativeAI } = require('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -200,7 +295,6 @@ async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, 
       const systemPrompt = config.ai_prompt || 'You are a helpful business assistant.';
       const businessInfo = config.business_info ? `\nBusiness info: ${config.business_info}` : '';
 
-      // Get last 10 messages for context
       const history = db.prepare(
         'SELECT direction, content FROM messages WHERE tenant_id = ? AND remote_jid = ? ORDER BY timestamp DESC LIMIT 10'
       ).all(tenantId, remoteJid).reverse();
@@ -216,9 +310,7 @@ async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, 
       replyText = config.welcome_message || 'Thank you for your message! We will get back to you shortly.';
     }
   } else {
-    // Simple auto-reply with welcome message
-    // Only send welcome to first-time contacts (1 incoming message = first)
-    const msgCount = db.prepare('SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND remote_jid = ? AND direction = "incoming"').get(tenantId, remoteJid);
+    const msgCount = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND remote_jid = ? AND direction = 'incoming'`).get(tenantId, remoteJid);
     if (msgCount.cnt <= 1) {
       replyText = config.welcome_message;
     }
@@ -226,25 +318,18 @@ async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, 
 
   if (!replyText) return;
 
-  // Send with delay
   setTimeout(async () => {
     try {
       await sock.sendMessage(remoteJid, { text: replyText });
 
-      // Save outgoing bot message
       const msgId = uuid();
-      db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, is_bot_reply, timestamp) VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))`).run(
-        msgId, tenantId, contactId, remoteJid, 'outgoing', replyText
+      db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, is_bot_reply, timestamp) VALUES (?, ?, ?, ?, 'outgoing', ?, 1, datetime('now'))`).run(
+        msgId, tenantId, contactId, remoteJid, replyText
       );
 
       if (io) {
         io.to(`tenant:${tenantId}`).emit('wa:message', {
-          id: msgId,
-          contactId,
-          direction: 'outgoing',
-          content: replyText,
-          isBotReply: true,
-          timestamp: new Date().toISOString(),
+          id: msgId, contactId, direction: 'outgoing', content: replyText, isBotReply: true, timestamp: new Date().toISOString(),
         });
       }
     } catch (err) {
@@ -253,18 +338,23 @@ async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, 
   }, config.auto_reply_delay_ms || 1000);
 }
 
-async function sendMessage(tenantId, remoteJid, text) {
-  const conn = connections.get(tenantId);
+async function sendMessage(tenantId, remoteJid, text, deviceId) {
+  // If deviceId provided, use that specific device; otherwise find any connected device for tenant
+  let conn;
+  if (deviceId) {
+    conn = connections.get(deviceId);
+  } else {
+    conn = getConnectionByTenant(tenantId);
+  }
+
   if (!conn || !conn.sock || conn.status !== 'connected') {
     throw new Error('WhatsApp not connected');
   }
 
-  // Ensure JID format
   const jid = remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
 
   await conn.sock.sendMessage(jid, { text });
 
-  // Get or create contact
   const phone = jid.replace('@s.whatsapp.net', '');
   let contact = db.prepare('SELECT id FROM contacts WHERE tenant_id = ? AND phone = ?').get(tenantId, phone);
   if (!contact) {
@@ -273,29 +363,69 @@ async function sendMessage(tenantId, remoteJid, text) {
     contact = { id: contactId };
   }
 
-  // Save message
   const msgId = uuid();
-  db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, timestamp) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`).run(
-    msgId, tenantId, contact.id, jid, 'outgoing', text
+  db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, timestamp) VALUES (?, ?, ?, ?, 'outgoing', ?, datetime('now'))`).run(
+    msgId, tenantId, contact.id, jid, text
   );
 
   return { id: msgId, content: text, direction: 'outgoing', timestamp: new Date().toISOString() };
 }
 
-async function disconnectWhatsApp(tenantId) {
-  const conn = connections.get(tenantId);
-  if (conn && conn.sock) {
-    await conn.sock.logout();
-    connections.delete(tenantId);
+async function disconnectWhatsApp(tenantId, deviceId) {
+  if (deviceId) {
+    const conn = connections.get(deviceId);
+    if (conn && conn.sock) {
+      await conn.sock.logout();
+      connections.delete(deviceId);
+    }
+    db.prepare(`UPDATE devices SET status = 'disconnected', updated_at = datetime('now') WHERE id = ?`).run(deviceId);
+  } else {
+    // Legacy: disconnect all devices for tenant
+    for (const [dId, conn] of connections.entries()) {
+      if (conn.tenantId === tenantId) {
+        try { await conn.sock.logout(); } catch (e) {}
+        connections.delete(dId);
+      }
+    }
   }
   db.prepare(`UPDATE wa_sessions SET status = 'disconnected', updated_at = datetime('now') WHERE tenant_id = ?`).run(tenantId);
 }
 
-function getStatus(tenantId) {
-  const conn = connections.get(tenantId);
+function getStatus(tenantId, deviceId) {
+  if (deviceId) {
+    const conn = connections.get(deviceId);
+    if (conn) return { status: conn.status, qr: conn.qr || null, deviceId };
+    const device = db.prepare('SELECT status, phone_number FROM devices WHERE id = ? AND tenant_id = ?').get(deviceId, tenantId);
+    return { status: device?.status || 'disconnected', phone: device?.phone_number || null, deviceId };
+  }
+  // Legacy: check tenant-level
+  const conn = getConnectionByTenant(tenantId);
   if (conn) return { status: conn.status, qr: conn.qr || null };
   const session = db.prepare('SELECT status, phone_number FROM wa_sessions WHERE tenant_id = ?').get(tenantId);
   return { status: session?.status || 'disconnected', phone: session?.phone_number || null };
 }
 
-module.exports = { setSocketIO, connectWhatsApp, disconnectWhatsApp, sendMessage, getConnection, getStatus };
+async function checkNumbers(tenantId, deviceId, phones) {
+  const conn = deviceId ? connections.get(deviceId) : getConnectionByTenant(tenantId);
+  if (!conn || !conn.sock || conn.status !== 'connected') {
+    throw new Error('WhatsApp not connected');
+  }
+
+  const results = [];
+  for (const phone of phones) {
+    try {
+      const jid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+      const [result] = await conn.sock.onWhatsApp(jid);
+      results.push({
+        phone,
+        exists: !!result?.exists,
+        jid: result?.jid || null,
+      });
+    } catch (err) {
+      results.push({ phone, exists: false, error: err.message });
+    }
+  }
+  return results;
+}
+
+module.exports = { setSocketIO, connectWhatsApp, disconnectWhatsApp, sendMessage, getConnection, getConnectionByTenant, getStatus, checkNumbers };

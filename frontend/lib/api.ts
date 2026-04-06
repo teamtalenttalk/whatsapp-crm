@@ -46,7 +46,7 @@ export async function getDashboardStats() {
   return apiFetch('/api/dashboard/stats');
 }
 
-// WhatsApp
+// WhatsApp (legacy single-device)
 export async function getWaStatus() {
   return apiFetch('/api/whatsapp/status');
 }
@@ -103,4 +103,52 @@ export async function getChatbotConfig() {
 
 export async function updateChatbotConfig(data: Record<string, unknown>) {
   return apiFetch('/api/chatbot/config', { method: 'PUT', body: JSON.stringify(data) });
+}
+
+// Devices
+export async function getDevices() { return apiFetch('/api/devices'); }
+export async function createDevice(name: string) { return apiFetch('/api/devices', { method: 'POST', body: JSON.stringify({ name }) }); }
+export async function deleteDevice(id: string) { return apiFetch(`/api/devices/${id}`, { method: 'DELETE' }); }
+export async function connectDevice(id: string) { return apiFetch(`/api/devices/${id}/connect`, { method: 'POST' }); }
+export async function disconnectDevice(id: string) { return apiFetch(`/api/devices/${id}/disconnect`, { method: 'POST' }); }
+export async function getDeviceStatus(id: string) { return apiFetch(`/api/devices/${id}/status`); }
+
+// Welcome Messages
+export async function getWelcomeMessages() { return apiFetch('/api/welcome-messages'); }
+export async function createWelcomeMessage(data: Record<string, unknown>) { return apiFetch('/api/welcome-messages', { method: 'POST', body: JSON.stringify(data) }); }
+export async function updateWelcomeMessage(id: string, data: Record<string, unknown>) { return apiFetch(`/api/welcome-messages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+export async function deleteWelcomeMessage(id: string) { return apiFetch(`/api/welcome-messages/${id}`, { method: 'DELETE' }); }
+
+// Auto Replies
+export async function getAutoReplies() { return apiFetch('/api/auto-replies'); }
+export async function createAutoReply(data: Record<string, unknown>) { return apiFetch('/api/auto-replies', { method: 'POST', body: JSON.stringify(data) }); }
+export async function updateAutoReply(id: string, data: Record<string, unknown>) { return apiFetch(`/api/auto-replies/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+export async function deleteAutoReply(id: string) { return apiFetch(`/api/auto-replies/${id}`, { method: 'DELETE' }); }
+
+// Templates
+export async function getTemplates() { return apiFetch('/api/templates'); }
+export async function createTemplate(data: Record<string, unknown>) { return apiFetch('/api/templates', { method: 'POST', body: JSON.stringify(data) }); }
+export async function updateTemplate(id: string, data: Record<string, unknown>) { return apiFetch(`/api/templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+export async function deleteTemplate(id: string) { return apiFetch(`/api/templates/${id}`, { method: 'DELETE' }); }
+
+// Unsubscribes
+export async function getUnsubscribes() { return apiFetch('/api/unsubscribes'); }
+export async function addUnsubscribe(phone: string, name?: string) { return apiFetch('/api/unsubscribes', { method: 'POST', body: JSON.stringify({ phone, name }) }); }
+export async function importUnsubscribes(phones: string[]) { return apiFetch('/api/unsubscribes/import', { method: 'POST', body: JSON.stringify({ phones }) }); }
+export async function deleteUnsubscribe(id: string) { return apiFetch(`/api/unsubscribes/${id}`, { method: 'DELETE' }); }
+
+// Number Filter
+export async function getFilterResults() { return apiFetch('/api/number-filter'); }
+export async function checkNumbers(deviceId: string, phones: string[]) { return apiFetch('/api/number-filter/check', { method: 'POST', body: JSON.stringify({ device_id: deviceId, phones }) }); }
+export async function clearFilterResults() { return apiFetch('/api/number-filter', { method: 'DELETE' }); }
+
+// Bulk Send
+export async function sendBulkMessages(data: Record<string, unknown>) { return apiFetch('/api/send-message/bulk', { method: 'POST', body: JSON.stringify(data) }); }
+
+// Report
+export async function getReport(from?: string, to?: string) {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return apiFetch(`/api/report?${params}`);
 }

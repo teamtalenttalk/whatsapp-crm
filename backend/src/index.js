@@ -21,6 +21,12 @@ const contactsRoutes = require('./routes/contacts');
 const messagesRoutes = require('./routes/messages');
 const chatbotRoutes = require('./routes/chatbot');
 const dashboardRoutes = require('./routes/dashboard');
+const devicesRoutes = require('./routes/devices');
+const welcomeMessagesRoutes = require('./routes/welcome-messages');
+const autoRepliesRoutes = require('./routes/auto-replies');
+const templatesRoutes = require('./routes/templates');
+const unsubscribesRoutes = require('./routes/unsubscribes');
+const numberFilterRoutes = require('./routes/number-filter');
 
 const app = express();
 const server = http.createServer(app);
@@ -66,6 +72,12 @@ app.use('/api/contacts', contactsRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/devices', devicesRoutes);
+app.use('/api/welcome-messages', welcomeMessagesRoutes);
+app.use('/api/auto-replies', autoRepliesRoutes);
+app.use('/api/templates', templatesRoutes);
+app.use('/api/unsubscribes', unsubscribesRoutes);
+app.use('/api/number-filter', numberFilterRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'whatsapp-crm' }));
