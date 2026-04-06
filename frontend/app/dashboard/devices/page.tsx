@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { getDevices, createDevice, deleteDevice, connectDevice, disconnectDevice, getDeviceStatus } from "@/lib/api";
 
 interface Device {
@@ -69,8 +70,12 @@ export default function DevicesPage() {
       const res = await connectDevice(device.id);
       if (res?.qr) {
         setQrModal({ deviceId: device.id, qr: res.qr, name: device.name });
-        startPolling(device.id);
+      } else {
+        // QR comes asynchronously - show modal with loading state
+        setQrModal({ deviceId: device.id, qr: '', name: device.name });
       }
+      // Always start polling for QR and status updates
+      startPolling(device.id);
       loadDevices();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Connection failed");
@@ -231,14 +236,14 @@ export default function DevicesPage() {
             <h2 className="text-lg font-bold text-white mb-2">Scan QR Code</h2>
             <p className="text-sm text-slate-400 mb-4">{qrModal.name}</p>
             <div className="bg-white rounded-xl p-4 inline-block mb-4">
-              {/* QR code rendered as image from base64/URL or SVG placeholder */}
-              {qrModal.qr.startsWith("data:") || qrModal.qr.startsWith("http") ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qrModal.qr} alt="QR Code" className="w-64 h-64" />
-              ) : (
-                <div className="w-64 h-64 flex items-center justify-center text-sm text-slate-600 font-mono break-all overflow-auto">
-                  {qrModal.qr}
+              {!qrModal.qr ? (
+                <div className="w-64 h-64 flex flex-col items-center justify-center">
+                  <div className="w-10 h-10 border-3 border-gray-300 border-t-green-500 rounded-full animate-spin mb-3" />
+                  <p className="text-sm text-slate-600">Generating QR Code...</p>
+                  <p className="text-xs text-slate-400 mt-1">Please wait a moment</p>
                 </div>
+              ) : (
+                <QRCodeSVG value={qrModal.qr} size={256} level="M" />
               )}
             </div>
             <p className="text-xs text-slate-500 mb-4">Open WhatsApp on your phone, go to Settings &gt; Linked Devices &gt; Link a Device</p>
