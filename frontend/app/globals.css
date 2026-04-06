@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --wa-green: #25D366;
+  --wa-green-hover: #1fb855;
+  --dark-bg: #0f172a;
+  --dark-surface: #1e293b;
+  --dark-border: #334155;
+}
+
+body {
+  background: var(--dark-bg);
+  color: #f1f5f9;
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--dark-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Sidebar */
+.sidebar-link {
+  @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors;
+}
+.sidebar-link.active {
+  @apply text-white bg-slate-800;
+  color: #25D366;
+}
+
+/* WhatsApp green button */
+.btn-wa {
+  @apply px-4 py-2 rounded-lg font-medium text-white transition-colors;
+  background: #25D366;
+}
+.btn-wa:hover {
+  background: #1fb855;
+}
+.btn-wa:disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Card */
+.card {
+  @apply rounded-xl border border-slate-700 bg-slate-800 p-5;
+}
+
+/* Input */
+.input-dark {
+  @apply w-full px-3 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:outline-none focus:border-green-400 focus:ring-1 focus:ring-green-400 transition-colors;
+}
+
+/* Badge */
+.badge {
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+}
+
+/* Stage badges */
+.badge-new { @apply bg-blue-500/20 text-blue-400; }
+.badge-qualified { @apply bg-yellow-500/20 text-yellow-400; }
+.badge-customer { @apply bg-green-500/20 text-green-400; }
+.badge-lost { @apply bg-red-500/20 text-red-400; }
