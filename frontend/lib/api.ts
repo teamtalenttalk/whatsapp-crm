@@ -152,3 +152,22 @@ export async function getReport(from?: string, to?: string) {
   if (to) params.set('to', to);
   return apiFetch(`/api/report?${params}`);
 }
+
+// Group Grabber
+export async function getGroups(deviceId: string) { return apiFetch(`/api/group-grabber/groups?deviceId=${deviceId}`); }
+export async function getGroupMembers(deviceId: string, groupId: string) { return apiFetch(`/api/group-grabber/groups/${encodeURIComponent(groupId)}/members?deviceId=${deviceId}`); }
+export async function exportGroupMembers(data: Record<string, unknown>) { return apiFetch('/api/group-grabber/export', { method: 'POST', body: JSON.stringify(data) }); }
+export async function addGroupToContacts(data: Record<string, unknown>) { return apiFetch('/api/group-grabber/add-to-contacts', { method: 'POST', body: JSON.stringify(data) }); }
+
+// Received Messages
+export async function getReceivedMessages(page = 1, limit = 50) { return apiFetch(`/api/received-messages?page=${page}&limit=${limit}`); }
+export async function clearReceivedMessages() { return apiFetch('/api/received-messages', { method: 'DELETE' }); }
+export async function exportReceivedMessages() { return apiFetch('/api/received-messages/export'); }
+
+// Integrations
+export async function getIntegrations() { return apiFetch('/api/integrations'); }
+export async function updateIntegration(provider: string, data: Record<string, unknown>) { return apiFetch(`/api/integrations/${provider}`, { method: 'PUT', body: JSON.stringify(data) }); }
+
+// Settings
+export async function getSettings() { return apiFetch('/api/settings'); }
+export async function updateSettings(data: Record<string, unknown>) { return apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(data) }); }

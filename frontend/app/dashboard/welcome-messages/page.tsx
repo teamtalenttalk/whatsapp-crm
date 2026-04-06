@@ -159,15 +159,20 @@ export default function WelcomeMessagesPage() {
                 <label className="block text-sm font-medium text-slate-300 mb-1">Message Type</label>
                 <select value={form.message_type} onChange={(e) => setForm({ ...form, message_type: e.target.value })} className="input-dark">
                   <option value="text">Text</option>
+                  <option value="text_with_media">Text With Media</option>
                   <option value="buttons">Buttons</option>
+                  <option value="button_with_media">Button With Media</option>
                   <option value="list">List</option>
+                  <option value="list_with_media">List With Media</option>
+                  <option value="poll">Poll Message</option>
+                  <option value="poll_with_media">Poll With Media</option>
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-1">Message *</label>
                 <textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} rows={4} className="input-dark" placeholder="Welcome! How can we help you today?" />
               </div>
-              {form.message_type !== "text" && (
+              {form.message_type !== "text" && form.message_type !== "text_with_media" && (
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">Buttons / List JSON</label>
                   <textarea value={form.buttons} onChange={(e) => setForm({ ...form, buttons: e.target.value })} rows={3} className="input-dark font-mono text-sm" placeholder='[{"id":"1","title":"Option 1"}]' />

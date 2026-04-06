@@ -202,6 +202,50 @@ function initDB() {
       checked_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- AI Integrations
+    CREATE TABLE IF NOT EXISTS integrations (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      api_key TEXT DEFAULT '',
+      model TEXT DEFAULT '',
+      enabled INTEGER DEFAULT 0,
+      response_format TEXT DEFAULT 'json_schema',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, provider)
+    );
+
+    -- Tenant Settings
+    CREATE TABLE IF NOT EXISTS settings (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT UNIQUE NOT NULL,
+      delay_enabled INTEGER DEFAULT 1,
+      delay_min INTEGER DEFAULT 3,
+      delay_max INTEGER DEFAULT 5,
+      sleep_enabled INTEGER DEFAULT 0,
+      sleep_after_messages INTEGER DEFAULT 20,
+      sleep_min INTEGER DEFAULT 5,
+      sleep_max INTEGER DEFAULT 10,
+      switch_account_after INTEGER DEFAULT 1,
+      welcome_message_enabled INTEGER DEFAULT 1,
+      welcome_message_duration INTEGER DEFAULT 7,
+      send_parallel INTEGER DEFAULT 0,
+      show_notification INTEGER DEFAULT 1,
+      auto_reply_enabled INTEGER DEFAULT 1,
+      auto_read INTEGER DEFAULT 0,
+      send_media_first INTEGER DEFAULT 1,
+      unsubscribe_enabled INTEGER DEFAULT 1,
+      unsubscribe_keyword TEXT DEFAULT 'STOP',
+      auto_reject_calls INTEGER DEFAULT 0,
+      webhook_url TEXT DEFAULT '',
+      webhook_events TEXT DEFAULT '[]',
+      default_country_code TEXT DEFAULT '',
+      language TEXT DEFAULT 'en',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id);
@@ -216,6 +260,8 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_contact_groups_tenant ON contact_groups(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_unsubscribes_tenant ON unsubscribes(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_number_filter_tenant ON number_filter_results(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON integrations(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_settings_tenant ON settings(tenant_id);
   `);
 
   // Add variable1, variable2 columns to contacts if they don't exist
