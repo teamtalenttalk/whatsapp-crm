@@ -1,3 +1,9 @@
+// Polyfill crypto for Node.js 18 compatibility with Baileys
+if (!globalThis.crypto) {
+  const { webcrypto } = require('crypto');
+  globalThis.crypto = webcrypto;
+}
+
 require('dotenv').config();
 
 const express = require('express');

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getWaStatus, connectWa, disconnectWa } from "@/lib/api";
 import { getSocket } from "@/lib/socket";
+import { QRCodeSVG } from "qrcode.react";
 
 interface WaStatus {
   connected: boolean;
@@ -119,13 +120,11 @@ export default function WhatsAppPage() {
             <p className="text-sm text-slate-400 mb-3">
               Scan this QR code with WhatsApp on your phone:
             </p>
-            <div className="bg-white p-4 rounded-lg inline-block">
-              <pre className="text-xs leading-none text-black font-mono whitespace-pre">
-                {qrCode}
-              </pre>
+            <div className="bg-white p-6 rounded-lg inline-block">
+              <QRCodeSVG value={qrCode} size={280} level="M" />
             </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Open WhatsApp &gt; Settings &gt; Linked Devices &gt; Link a Device
+            <p className="text-xs text-slate-500 mt-3">
+              Open WhatsApp &rarr; Settings &rarr; Linked Devices &rarr; Link a Device
             </p>
           </div>
         )}

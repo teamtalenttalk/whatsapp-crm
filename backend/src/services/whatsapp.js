@@ -49,7 +49,7 @@ async function connectWhatsApp(tenantId) {
   const updateStatus = (status, phone) => {
     const session = db.prepare('SELECT id FROM wa_sessions WHERE tenant_id = ?').get(tenantId);
     if (session) {
-      db.prepare('UPDATE wa_sessions SET status = ?, phone_number = COALESCE(?, phone_number), updated_at = datetime("now") WHERE tenant_id = ?').run(status, phone || null, tenantId);
+      db.prepare(`UPDATE wa_sessions SET status = ?, phone_number = COALESCE(?, phone_number), updated_at = datetime('now') WHERE tenant_id = ?`).run(status, phone || null, tenantId);
     } else {
       db.prepare('INSERT INTO wa_sessions (id, tenant_id, status, phone_number) VALUES (?, ?, ?, ?)').run(uuid(), tenantId, status, phone || null);
     }
@@ -63,6 +63,7 @@ async function connectWhatsApp(tenantId) {
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
+    console.log(`[WA] connection.update for ${tenantId}:`, JSON.stringify({ connection, hasQR: !!qr, qrLen: qr?.length }));
 
     if (qr) {
       connections.set(tenantId, { ...connections.get(tenantId), status: 'qr', qr });
@@ -76,6 +77,9 @@ async function connectWhatsApp(tenantId) {
       const phone = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0] || '';
       connections.set(tenantId, { ...connections.get(tenantId), status: 'connected', qr: null });
       updateStatus('connected', phone);
+      if (io) {
+        io.to(`tenant:${tenantId}`).emit('wa:connected', { phone });
+      }
       console.log(`[WA] Tenant ${tenantId} connected: ${phone}`);
     }
 
@@ -85,6 +89,9 @@ async function connectWhatsApp(tenantId) {
 
       connections.set(tenantId, { ...connections.get(tenantId), status: 'disconnected', qr: null });
       updateStatus('disconnected');
+      if (io) {
+        io.to(`tenant:${tenantId}`).emit('wa:disconnected', {});
+      }
       console.log(`[WA] Tenant ${tenantId} disconnected. Code: ${statusCode}, Reconnect: ${shouldReconnect}`);
 
       if (shouldReconnect) {
@@ -145,7 +152,7 @@ async function connectWhatsApp(tenantId) {
       } else {
         // Update name if we got a push name
         if (pushName && pushName !== phone) {
-          db.prepare('UPDATE contacts SET name = ?, updated_at = datetime("now") WHERE id = ?').run(pushName, contact.id);
+          db.prepare(`UPDATE contacts SET name = ?, updated_at = datetime('now') WHERE id = ?`).run(pushName, contact.id);
         }
       }
 
@@ -226,7 +233,7 @@ async function handleChatbotReply(tenantId, remoteJid, contactId, incomingText, 
 
       // Save outgoing bot message
       const msgId = uuid();
-      db.prepare('INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, is_bot_reply, timestamp) VALUES (?, ?, ?, ?, ?, ?, 1, datetime("now"))').run(
+      db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, is_bot_reply, timestamp) VALUES (?, ?, ?, ?, ?, ?, 1, datetime('now'))`).run(
         msgId, tenantId, contactId, remoteJid, 'outgoing', replyText
       );
 
@@ -268,7 +275,7 @@ async function sendMessage(tenantId, remoteJid, text) {
 
   // Save message
   const msgId = uuid();
-  db.prepare('INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, timestamp) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))').run(
+  db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, timestamp) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`).run(
     msgId, tenantId, contact.id, jid, 'outgoing', text
   );
 
@@ -281,7 +288,7 @@ async function disconnectWhatsApp(tenantId) {
     await conn.sock.logout();
     connections.delete(tenantId);
   }
-  db.prepare('UPDATE wa_sessions SET status = "disconnected", updated_at = datetime("now") WHERE tenant_id = ?').run(tenantId);
+  db.prepare(`UPDATE wa_sessions SET status = 'disconnected', updated_at = datetime('now') WHERE tenant_id = ?`).run(tenantId);
 }
 
 function getStatus(tenantId) {

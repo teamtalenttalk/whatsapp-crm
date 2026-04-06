@@ -8,7 +8,7 @@ const router = express.Router();
 // List contacts
 router.get('/', authMiddleware, (req, res) => {
   const { search, stage, limit = 50, offset = 0 } = req.query;
-  let query = 'SELECT c.*, (SELECT COUNT(*) FROM messages WHERE contact_id = c.id AND direction = "incoming" AND status != "read") as unread_count, (SELECT content FROM messages WHERE contact_id = c.id ORDER BY timestamp DESC LIMIT 1) as last_message, (SELECT timestamp FROM messages WHERE contact_id = c.id ORDER BY timestamp DESC LIMIT 1) as last_message_at FROM contacts c WHERE c.tenant_id = ?';
+  let query = "SELECT c.*, (SELECT COUNT(*) FROM messages WHERE contact_id = c.id AND direction = 'incoming' AND status != 'read') as unread_count, (SELECT content FROM messages WHERE contact_id = c.id ORDER BY timestamp DESC LIMIT 1) as last_message, (SELECT timestamp FROM messages WHERE contact_id = c.id ORDER BY timestamp DESC LIMIT 1) as last_message_at FROM contacts c WHERE c.tenant_id = ?";
   const params = [req.tenant.id];
 
   if (search) {
