@@ -80,18 +80,29 @@ function initDB() {
     CREATE TABLE IF NOT EXISTS campaigns (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL REFERENCES tenants(id),
-      name TEXT NOT NULL,
-      message_template TEXT NOT NULL,
-      media_url TEXT,
+      name TEXT NOT NULL DEFAULT '',
+      device_id TEXT,
+      message_type TEXT DEFAULT 'text',
+      message_template TEXT DEFAULT '',
+      buttons TEXT DEFAULT '[]',
+      list_config TEXT DEFAULT '{}',
+      media_url TEXT DEFAULT '',
+      media_type TEXT DEFAULT '',
+      media_caption TEXT DEFAULT '',
       status TEXT DEFAULT 'draft',
       total_recipients INTEGER DEFAULT 0,
       sent_count INTEGER DEFAULT 0,
       failed_count INTEGER DEFAULT 0,
+      delivered_count INTEGER DEFAULT 0,
+      read_count INTEGER DEFAULT 0,
       scheduled_at TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
     );
 
-    -- Campaign recipients
+    -- Campaign recipients (legacy)
     CREATE TABLE IF NOT EXISTS campaign_recipients (
       id TEXT PRIMARY KEY,
       campaign_id TEXT NOT NULL REFERENCES campaigns(id),
@@ -99,6 +110,20 @@ function initDB() {
       status TEXT DEFAULT 'pending',
       sent_at TEXT,
       error TEXT
+    );
+
+    -- Campaign messages (per-phone tracking)
+    CREATE TABLE IF NOT EXISTS campaign_messages (
+      id TEXT PRIMARY KEY,
+      campaign_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      error TEXT,
+      sent_at TEXT,
+      delivered_at TEXT,
+      read_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
     );
 
     -- Appointments
@@ -262,6 +287,8 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_number_filter_tenant ON number_filter_results(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_integrations_tenant ON integrations(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_settings_tenant ON settings(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_campaign_messages_campaign ON campaign_messages(campaign_id);
+    CREATE INDEX IF NOT EXISTS idx_campaign_messages_tenant ON campaign_messages(tenant_id);
   `);
 
   // Add variable1, variable2 columns to contacts if they don't exist
@@ -270,6 +297,49 @@ function initDB() {
   } catch (e) { /* column already exists */ }
   try {
     db.exec(`ALTER TABLE contacts ADD COLUMN variable2 TEXT`);
+  } catch (e) { /* column already exists */ }
+
+  // Add wa_message_id and delivery_status columns to messages if they don't exist
+  try {
+    db.exec(`ALTER TABLE messages ADD COLUMN wa_message_id TEXT`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE messages ADD COLUMN delivery_status TEXT DEFAULT 'sent'`);
+  } catch (e) { /* column already exists */ }
+
+  // Add new columns to campaigns if upgrading from old schema
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN device_id TEXT`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN message_type TEXT DEFAULT 'text'`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN buttons TEXT DEFAULT '[]'`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN list_config TEXT DEFAULT '{}'`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN media_type TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN media_caption TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN delivered_count INTEGER DEFAULT 0`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN read_count INTEGER DEFAULT 0`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN started_at TEXT`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN completed_at TEXT`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE campaigns ADD COLUMN updated_at TEXT`);
   } catch (e) { /* column already exists */ }
 
   console.log('Database initialized');

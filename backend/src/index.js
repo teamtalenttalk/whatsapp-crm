@@ -31,6 +31,10 @@ const groupGrabberRoutes = require('./routes/group-grabber');
 const receivedMessagesRoutes = require('./routes/received-messages');
 const integrationsRoutes = require('./routes/integrations');
 const settingsRoutes = require('./routes/settings');
+const sendMessageRoutes = require('./routes/send-message');
+const campaignRoutes = require('./routes/campaigns');
+const uploadRoutes = require('./routes/upload');
+const { startScheduler } = require('./services/scheduler');
 
 const app = express();
 const server = http.createServer(app);
@@ -50,6 +54,10 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// Static file serving for uploads
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, '..', 'data', 'uploads')));
 
 // Init database
 initDB();
@@ -86,6 +94,9 @@ app.use('/api/group-grabber', groupGrabberRoutes);
 app.use('/api/received-messages', receivedMessagesRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/send-message', sendMessageRoutes);
+app.use('/api/campaigns', campaignRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'whatsapp-crm' }));
@@ -93,4 +104,6 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'whatsapp
 const PORT = process.env.PORT || 8097;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`WhatsApp CRM backend running on port ${PORT}`);
+  // Start the campaign scheduler (checks every 30s for due scheduled campaigns)
+  startScheduler();
 });

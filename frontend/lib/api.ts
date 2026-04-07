@@ -145,6 +145,33 @@ export async function clearFilterResults() { return apiFetch('/api/number-filter
 // Bulk Send
 export async function sendBulkMessages(data: Record<string, unknown>) { return apiFetch('/api/send-message/bulk', { method: 'POST', body: JSON.stringify(data) }); }
 
+// Send Message (enhanced)
+export const sendBulkMessage = (data: Record<string, unknown>) =>
+  apiFetch('/api/send-message/send', { method: 'POST', body: JSON.stringify(data) });
+
+// Campaigns
+export const getCampaigns = () => apiFetch('/api/campaigns');
+export const getCampaignDetails = (id: string) => apiFetch(`/api/campaigns/${id}`);
+export const startCampaign = (id: string) => apiFetch(`/api/campaigns/${id}/start`, { method: 'POST' });
+export const deleteCampaign = (id: string) => apiFetch(`/api/campaigns/${id}`, { method: 'DELETE' });
+
+// File Upload
+export async function uploadFile(file: File) {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('crm_token') : null;
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API}/api/upload`, {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Upload failed');
+  }
+  return res.json();
+}
+
 // Report
 export async function getReport(from?: string, to?: string) {
   const params = new URLSearchParams();

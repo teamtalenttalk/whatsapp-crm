@@ -38,6 +38,31 @@ router.get('/stats', authMiddleware, (req, res) => {
   const autoReplyMessages = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND is_bot_reply = 1`).get(tid).cnt;
   const welcomeMessageCount = db.prepare('SELECT COUNT(*) as cnt FROM welcome_messages WHERE tenant_id = ? AND enabled = 1').get(tid).cnt;
 
+  // Campaign breakdown stats
+  const activeCampaigns = db.prepare(`SELECT COUNT(*) as cnt FROM campaigns WHERE tenant_id = ? AND status = 'sending'`).get(tid).cnt;
+  const completedCampaigns = db.prepare(`SELECT COUNT(*) as cnt FROM campaigns WHERE tenant_id = ? AND status = 'completed'`).get(tid).cnt;
+  const scheduledCampaigns = db.prepare(`SELECT COUNT(*) as cnt FROM campaigns WHERE tenant_id = ? AND status = 'scheduled'`).get(tid).cnt;
+  const failedCampaigns = db.prepare(`SELECT COUNT(*) as cnt FROM campaigns WHERE tenant_id = ? AND status = 'failed'`).get(tid).cnt;
+
+  // Delivery stats from campaign_messages
+  const cmTotal = db.prepare(`SELECT COUNT(*) as cnt FROM campaign_messages WHERE tenant_id = ?`).get(tid).cnt;
+  const cmSent = db.prepare(`SELECT COUNT(*) as cnt FROM campaign_messages WHERE tenant_id = ? AND status = 'sent'`).get(tid).cnt;
+  const cmDelivered = db.prepare(`SELECT COUNT(*) as cnt FROM campaign_messages WHERE tenant_id = ? AND status = 'delivered'`).get(tid).cnt;
+  const cmRead = db.prepare(`SELECT COUNT(*) as cnt FROM campaign_messages WHERE tenant_id = ? AND status = 'read'`).get(tid).cnt;
+  const cmFailed = db.prepare(`SELECT COUNT(*) as cnt FROM campaign_messages WHERE tenant_id = ? AND status = 'failed'`).get(tid).cnt;
+  const cmPending = db.prepare(`SELECT COUNT(*) as cnt FROM campaign_messages WHERE tenant_id = ? AND status = 'pending'`).get(tid).cnt;
+
+  // Per-campaign breakdown (last 10 campaigns)
+  const recentCampaigns = db.prepare(`
+    SELECT c.id, c.name, c.status, c.total_recipients, c.sent_count, c.failed_count, c.created_at, c.scheduled_at,
+      (SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = c.id AND status = 'delivered') as delivered,
+      (SELECT COUNT(*) FROM campaign_messages WHERE campaign_id = c.id AND status = 'read') as read_count
+    FROM campaigns c
+    WHERE c.tenant_id = ?
+    ORDER BY c.created_at DESC
+    LIMIT 10
+  `).all(tid);
+
   res.json({
     totalContacts,
     newContacts,
@@ -59,6 +84,26 @@ router.get('/stats', authMiddleware, (req, res) => {
       auto_reply: autoReplyMessages,
       welcome: welcomeMessageCount,
     },
+    campaignStats: {
+      total: totalCampaigns,
+      active: activeCampaigns,
+      completed: completedCampaigns,
+      scheduled: scheduledCampaigns,
+      failed: failedCampaigns,
+    },
+    deliveryStats: {
+      total: cmTotal,
+      sent: cmSent,
+      delivered: cmDelivered,
+      read: cmRead,
+      failed: cmFailed,
+      pending: cmPending,
+      sentPercent: cmTotal > 0 ? Math.round((cmSent / cmTotal) * 100) : 0,
+      deliveredPercent: cmTotal > 0 ? Math.round((cmDelivered / cmTotal) * 100) : 0,
+      readPercent: cmTotal > 0 ? Math.round((cmRead / cmTotal) * 100) : 0,
+      failedPercent: cmTotal > 0 ? Math.round((cmFailed / cmTotal) * 100) : 0,
+    },
+    recentCampaigns,
   });
 });
 

@@ -132,6 +132,59 @@ async function connectWhatsApp(tenantId, deviceId) {
     }
   });
 
+  // Handle delivery status updates (sent/delivered/read receipts)
+  sock.ev.on('messages.update', (updates) => {
+    for (const update of updates) {
+      if (update.update?.status) {
+        const waMessageId = update.key?.id;
+        if (!waMessageId) continue;
+
+        // Baileys status codes: 2 = sent to server, 3 = delivered, 4 = read
+        const statusCode = update.update.status;
+        let deliveryStatus = 'sent';
+        if (statusCode === 3) deliveryStatus = 'delivered';
+        if (statusCode === 4) deliveryStatus = 'read';
+
+        // Update messages table
+        try {
+          db.prepare(`UPDATE messages SET delivery_status = ?, updated_at = datetime('now') WHERE wa_message_id = ? AND tenant_id = ?`).run(deliveryStatus, waMessageId, tenantId);
+        } catch (e) {
+          // updated_at column may not exist on messages, ignore
+          try {
+            db.prepare(`UPDATE messages SET delivery_status = ? WHERE wa_message_id = ? AND tenant_id = ?`).run(deliveryStatus, waMessageId, tenantId);
+          } catch (e2) { /* ignore */ }
+        }
+
+        // Update campaign_messages if this message belongs to a campaign
+        try {
+          if (deliveryStatus === 'delivered') {
+            // Find by matching phone from the message key
+            const phone = update.key?.remoteJid?.replace('@s.whatsapp.net', '').replace('@g.us', '');
+            if (phone) {
+              db.prepare(`UPDATE campaign_messages SET status = 'delivered', delivered_at = datetime('now') WHERE tenant_id = ? AND phone = ? AND status = 'sent'`).run(tenantId, phone);
+            }
+          } else if (deliveryStatus === 'read') {
+            const phone = update.key?.remoteJid?.replace('@s.whatsapp.net', '').replace('@g.us', '');
+            if (phone) {
+              db.prepare(`UPDATE campaign_messages SET status = 'read', read_at = datetime('now') WHERE tenant_id = ? AND phone = ? AND status IN ('sent', 'delivered')`).run(tenantId, phone);
+            }
+          }
+        } catch (e) {
+          console.error('[WA] Campaign message status update error:', e.message);
+        }
+
+        // Notify frontend
+        if (io) {
+          io.to(`tenant:${tenantId}`).emit('wa:delivery_status', {
+            waMessageId,
+            status: deliveryStatus,
+            deviceId,
+          });
+        }
+      }
+    }
+  });
+
   // Handle incoming messages
   sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
     if (type !== 'notify') return;
@@ -353,7 +406,8 @@ async function sendMessage(tenantId, remoteJid, text, deviceId) {
 
   const jid = remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`;
 
-  await conn.sock.sendMessage(jid, { text });
+  const result = await conn.sock.sendMessage(jid, { text });
+  const waMessageId = result?.key?.id || null;
 
   const phone = jid.replace('@s.whatsapp.net', '');
   let contact = db.prepare('SELECT id FROM contacts WHERE tenant_id = ? AND phone = ?').get(tenantId, phone);
@@ -364,11 +418,11 @@ async function sendMessage(tenantId, remoteJid, text, deviceId) {
   }
 
   const msgId = uuid();
-  db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, timestamp) VALUES (?, ?, ?, ?, 'outgoing', ?, datetime('now'))`).run(
-    msgId, tenantId, contact.id, jid, text
+  db.prepare(`INSERT INTO messages (id, tenant_id, contact_id, remote_jid, direction, content, wa_message_id, delivery_status, timestamp) VALUES (?, ?, ?, ?, 'outgoing', ?, ?, 'sent', datetime('now'))`).run(
+    msgId, tenantId, contact.id, jid, text, waMessageId
   );
 
-  return { id: msgId, content: text, direction: 'outgoing', timestamp: new Date().toISOString() };
+  return { id: msgId, content: text, direction: 'outgoing', waMessageId, timestamp: new Date().toISOString() };
 }
 
 async function disconnectWhatsApp(tenantId, deviceId) {

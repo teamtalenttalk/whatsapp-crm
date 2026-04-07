@@ -4,10 +4,10 @@ const { authMiddleware } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Get messages for a contact (chat history)
+// Get messages for a contact (chat history) - includes delivery status
 router.get('/:contactId', authMiddleware, (req, res) => {
   const { limit = 50, before } = req.query;
-  let query = 'SELECT * FROM messages WHERE tenant_id = ? AND contact_id = ?';
+  let query = 'SELECT id, tenant_id, contact_id, remote_jid, direction, message_type, content, media_url, status, is_bot_reply, wa_message_id, delivery_status, timestamp FROM messages WHERE tenant_id = ? AND contact_id = ?';
   const params = [req.tenant.id, req.params.contactId];
 
   if (before) {
@@ -38,6 +38,22 @@ router.get('/', authMiddleware, (req, res) => {
   `).all(req.tenant.id);
 
   res.json(conversations);
+});
+
+// Get delivery stats for messages
+router.get('/stats/delivery', authMiddleware, (req, res) => {
+  try {
+    const tid = req.tenant.id;
+    const total = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND direction = 'outgoing'`).get(tid).cnt;
+    const sent = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND direction = 'outgoing' AND delivery_status = 'sent'`).get(tid).cnt;
+    const delivered = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND direction = 'outgoing' AND delivery_status = 'delivered'`).get(tid).cnt;
+    const read = db.prepare(`SELECT COUNT(*) as cnt FROM messages WHERE tenant_id = ? AND direction = 'outgoing' AND delivery_status = 'read'`).get(tid).cnt;
+
+    res.json({ total, sent, delivered, read });
+  } catch (err) {
+    console.error('Delivery stats error:', err);
+    res.status(500).json({ error: 'Failed to get delivery stats' });
+  }
 });
 
 module.exports = router;
