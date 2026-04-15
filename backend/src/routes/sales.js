@@ -166,7 +166,8 @@ router.post('/', authMiddleware, (req, res) => {
     const {
       customer_name, customer_phone,
       items, tax_rate = 0, discount = 0,
-      notes, status = 'completed'
+      notes, status = 'completed',
+      payment_method = 'Cash'
     } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -206,15 +207,19 @@ router.post('/', authMiddleware, (req, res) => {
     const saleId = uuid();
 
     const createSale = db.transaction(() => {
+      // Validate payment method
+      const validMethods = ['Cash', 'Card', 'Bank Transfer', 'WhatsApp Pay', 'Online'];
+      const pm = validMethods.includes(payment_method) ? payment_method : 'Cash';
+
       // Insert sale record
       db.prepare(`
-        INSERT INTO sales (id, tenant_id, invoice_number, customer_name, customer_phone, subtotal, tax_rate, tax_amount, discount, total, notes, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sales (id, tenant_id, invoice_number, customer_name, customer_phone, subtotal, tax_rate, tax_amount, discount, total, notes, status, payment_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         saleId, tenantId, invoiceNumber,
         customer_name || null, customer_phone || null,
         subtotal, parseFloat(tax_rate), taxAmount, parseFloat(discount || 0),
-        total, notes || null, status
+        total, notes || null, status, pm
       );
 
       // Insert line items and deduct stock
@@ -270,7 +275,13 @@ router.put('/:id', authMiddleware, (req, res) => {
     ).get(req.params.id, req.tenant.id);
     if (!sale) return res.status(404).json({ error: 'Sale not found' });
 
-    const { customer_name, customer_phone, tax_rate, discount, notes, status } = req.body;
+    const { customer_name, customer_phone, tax_rate, discount, notes, status, payment_method } = req.body;
+
+    // Validate payment_method if provided
+    const validMethods = ['Cash', 'Card', 'Bank Transfer', 'WhatsApp Pay', 'Online'];
+    if (payment_method && !validMethods.includes(payment_method)) {
+      return res.status(400).json({ error: `Invalid payment method. Must be one of: ${validMethods.join(', ')}` });
+    }
 
     // Recalculate if tax or discount changed
     const newTaxRate = tax_rate != null ? parseFloat(tax_rate) : sale.tax_rate;
@@ -282,7 +293,7 @@ router.put('/:id', authMiddleware, (req, res) => {
       UPDATE sales SET
         customer_name = ?, customer_phone = ?,
         tax_rate = ?, tax_amount = ?, discount = ?, total = ?,
-        notes = ?, status = ?,
+        notes = ?, status = ?, payment_method = ?,
         updated_at = datetime('now')
       WHERE id = ? AND tenant_id = ?
     `).run(
@@ -291,6 +302,7 @@ router.put('/:id', authMiddleware, (req, res) => {
       newTaxRate, newTaxAmount, newDiscount, newTotal,
       notes ?? sale.notes,
       status ?? sale.status,
+      payment_method ?? sale.payment_method,
       req.params.id, req.tenant.id
     );
 
@@ -306,6 +318,62 @@ router.put('/:id', authMiddleware, (req, res) => {
   } catch (err) {
     console.error('Update sale error:', err);
     res.status(500).json({ error: 'Failed to update sale' });
+  }
+});
+
+// ─── POST /:id/void — Void an invoice (restore stock) ──────────────────────
+router.post('/:id/void', authMiddleware, (req, res) => {
+  try {
+    const sale = db.prepare(
+      'SELECT * FROM sales WHERE id = ? AND tenant_id = ?'
+    ).get(req.params.id, req.tenant.id);
+    if (!sale) return res.status(404).json({ error: 'Sale not found' });
+
+    if (sale.status === 'voided') {
+      return res.status(400).json({ error: 'Sale is already voided' });
+    }
+
+    const voidSale = db.transaction(() => {
+      // Restore stock for each line item
+      const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(req.params.id);
+
+      for (const item of items) {
+        const product = db.prepare('SELECT stock_qty FROM products WHERE id = ?').get(item.product_id);
+        if (product) {
+          const newQty = product.stock_qty + item.quantity;
+
+          db.prepare(
+            "UPDATE products SET stock_qty = ?, updated_at = datetime('now') WHERE id = ?"
+          ).run(newQty, item.product_id);
+
+          db.prepare(`
+            INSERT INTO stock_movements (id, product_id, tenant_id, type, quantity, previous_qty, new_qty, reason)
+            VALUES (?, ?, ?, 'add', ?, ?, ?, ?)
+          `).run(uuid(), item.product_id, req.tenant.id, item.quantity, product.stock_qty, newQty, `Voided invoice ${sale.invoice_number}`);
+        }
+      }
+
+      // Set status to voided
+      db.prepare(`
+        UPDATE sales SET status = 'voided', updated_at = datetime('now')
+        WHERE id = ? AND tenant_id = ?
+      `).run(req.params.id, req.tenant.id);
+    });
+
+    voidSale();
+
+    const updated = db.prepare('SELECT * FROM sales WHERE id = ?').get(req.params.id);
+    const items = db.prepare(`
+      SELECT si.*, p.name as product_name, p.sku as product_sku
+      FROM sale_items si
+      LEFT JOIN products p ON p.id = si.product_id
+      WHERE si.sale_id = ?
+    `).all(req.params.id);
+
+    res.json({ ...updated, items, message: 'Invoice voided and stock restored' });
+  } catch (err) {
+    console.error('Void sale error:', err);
+    res.status(500).json({ error: 'Failed to void sale' });
   }
 });
 
@@ -347,6 +415,163 @@ router.delete('/:id', authMiddleware, (req, res) => {
   } catch (err) {
     console.error('Delete sale error:', err);
     res.status(500).json({ error: 'Failed to delete sale' });
+  }
+});
+
+// ─── GET /:id/pdf — Download PDF invoice ────────────────────────────────────
+router.get('/:id/pdf', authMiddleware, (req, res) => {
+  try {
+    const PDFDocument = require('pdfkit');
+
+    const sale = db.prepare(
+      'SELECT * FROM sales WHERE id = ? AND tenant_id = ?'
+    ).get(req.params.id, req.tenant.id);
+    if (!sale) return res.status(404).json({ error: 'Sale not found' });
+
+    const items = db.prepare(`
+      SELECT si.*, p.name as product_name, p.sku as product_sku
+      FROM sale_items si
+      LEFT JOIN products p ON p.id = si.product_id
+      WHERE si.sale_id = ?
+    `).all(req.params.id);
+
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.tenant.id);
+
+    // Build PDF
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    const buffers = [];
+
+    doc.on('data', (chunk) => buffers.push(chunk));
+    doc.on('end', () => {
+      const pdfBuffer = Buffer.concat(buffers);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${sale.invoice_number}.pdf"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
+    });
+
+    const pageWidth = doc.page.width - 100; // accounting for margins
+
+    // ── Header ──
+    doc.fontSize(22).font('Helvetica-Bold').text(tenant ? tenant.name : 'Invoice', 50, 50);
+    doc.fontSize(10).font('Helvetica').fillColor('#666666');
+    if (tenant && tenant.email) doc.text(tenant.email, 50, 78);
+
+    // Invoice details — right-aligned block
+    const rightCol = 380;
+    doc.fontSize(18).font('Helvetica-Bold').fillColor('#333333').text('INVOICE', rightCol, 50);
+    doc.fontSize(10).font('Helvetica').fillColor('#666666');
+    doc.text(`Invoice #: ${sale.invoice_number}`, rightCol, 75);
+    doc.text(`Date: ${new Date(sale.created_at).toLocaleDateString('en-GB')}`, rightCol, 90);
+    doc.text(`Status: ${(sale.status || 'completed').toUpperCase()}`, rightCol, 105);
+    if (sale.payment_method) {
+      doc.text(`Payment: ${sale.payment_method}`, rightCol, 120);
+    }
+
+    // Divider
+    doc.moveTo(50, 140).lineTo(50 + pageWidth, 140).strokeColor('#cccccc').stroke();
+
+    // ── Customer info ──
+    let y = 155;
+    doc.fontSize(11).font('Helvetica-Bold').fillColor('#333333').text('Bill To:', 50, y);
+    y += 18;
+    doc.fontSize(10).font('Helvetica').fillColor('#444444');
+    if (sale.customer_name) { doc.text(sale.customer_name, 50, y); y += 15; }
+    if (sale.customer_phone) { doc.text(sale.customer_phone, 50, y); y += 15; }
+
+    // ── Items table ──
+    y += 15;
+    const tableTop = y;
+    const col = { num: 50, desc: 80, sku: 260, qty: 340, price: 400, total: 475 };
+
+    // Table header
+    doc.rect(50, tableTop, pageWidth, 22).fill('#f0f0f0');
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#333333');
+    doc.text('#', col.num + 5, tableTop + 6);
+    doc.text('Description', col.desc, tableTop + 6);
+    doc.text('SKU', col.sku, tableTop + 6);
+    doc.text('Qty', col.qty, tableTop + 6);
+    doc.text('Unit Price', col.price, tableTop + 6);
+    doc.text('Total', col.total, tableTop + 6);
+
+    // Table rows
+    y = tableTop + 26;
+    doc.font('Helvetica').fontSize(9).fillColor('#444444');
+
+    items.forEach((item, idx) => {
+      if (y > 700) {
+        doc.addPage();
+        y = 50;
+      }
+
+      const rowBg = idx % 2 === 1 ? '#fafafa' : '#ffffff';
+      doc.rect(50, y - 2, pageWidth, 18).fill(rowBg);
+      doc.fillColor('#444444');
+      doc.text(String(idx + 1), col.num + 5, y + 2);
+      doc.text(item.product_name || 'Unknown', col.desc, y + 2, { width: 170 });
+      doc.text(item.product_sku || '-', col.sku, y + 2);
+      doc.text(String(item.quantity), col.qty, y + 2);
+      doc.text(item.unit_price.toFixed(2), col.price, y + 2);
+      doc.text(item.total.toFixed(2), col.total, y + 2);
+      y += 20;
+    });
+
+    // Table bottom line
+    doc.moveTo(50, y).lineTo(50 + pageWidth, y).strokeColor('#cccccc').stroke();
+
+    // ── Totals ──
+    y += 15;
+    const labelX = 380;
+    const valueX = 475;
+
+    doc.font('Helvetica').fontSize(10).fillColor('#444444');
+    doc.text('Subtotal:', labelX, y);
+    doc.text(sale.subtotal.toFixed(2), valueX, y);
+    y += 18;
+
+    if (sale.tax_rate > 0) {
+      doc.text(`Tax (${sale.tax_rate}%):`, labelX, y);
+      doc.text(sale.tax_amount.toFixed(2), valueX, y);
+      y += 18;
+    }
+
+    if (sale.discount > 0) {
+      doc.text('Discount:', labelX, y);
+      doc.text(`-${sale.discount.toFixed(2)}`, valueX, y);
+      y += 18;
+    }
+
+    doc.moveTo(labelX, y).lineTo(50 + pageWidth, y).strokeColor('#cccccc').stroke();
+    y += 8;
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#333333');
+    doc.text('TOTAL:', labelX, y);
+    doc.text(sale.total.toFixed(2), valueX, y);
+
+    // ── Payment & Status ──
+    y += 35;
+    doc.font('Helvetica').fontSize(10).fillColor('#444444');
+    doc.text(`Payment Method: ${sale.payment_method || 'Cash'}`, 50, y);
+    doc.text(`Status: ${(sale.status || 'completed').charAt(0).toUpperCase() + (sale.status || 'completed').slice(1)}`, 250, y);
+
+    // ── Notes ──
+    if (sale.notes) {
+      y += 25;
+      doc.font('Helvetica-Bold').fontSize(10).fillColor('#333333').text('Notes:', 50, y);
+      y += 15;
+      doc.font('Helvetica').fontSize(9).fillColor('#666666').text(sale.notes, 50, y, { width: pageWidth });
+    }
+
+    // ── Footer ──
+    doc.fontSize(8).font('Helvetica').fillColor('#999999');
+    doc.text('Thank you for your business!', 50, 760, { align: 'center', width: pageWidth });
+
+    doc.end();
+  } catch (err) {
+    if (err.code === 'MODULE_NOT_FOUND') {
+      return res.status(501).json({ error: 'pdfkit is not installed. Run: npm install pdfkit' });
+    }
+    console.error('PDF invoice generation error:', err);
+    res.status(500).json({ error: 'Failed to generate PDF invoice' });
   }
 });
 
@@ -396,12 +621,15 @@ router.post('/:id/invoice', authMiddleware, (req, res) => {
     doc.text(`Invoice #: ${sale.invoice_number}`, rightCol, 75);
     doc.text(`Date: ${new Date(sale.created_at).toLocaleDateString('en-GB')}`, rightCol, 90);
     doc.text(`Status: ${(sale.status || 'completed').toUpperCase()}`, rightCol, 105);
+    if (sale.payment_method) {
+      doc.text(`Payment: ${sale.payment_method}`, rightCol, 120);
+    }
 
     // Divider
-    doc.moveTo(50, 130).lineTo(50 + pageWidth, 130).strokeColor('#cccccc').stroke();
+    doc.moveTo(50, 140).lineTo(50 + pageWidth, 140).strokeColor('#cccccc').stroke();
 
     // ── Customer info ──
-    let y = 145;
+    let y = 155;
     doc.fontSize(11).font('Helvetica-Bold').fillColor('#333333').text('Bill To:', 50, y);
     y += 18;
     doc.fontSize(10).font('Helvetica').fillColor('#444444');
@@ -441,7 +669,7 @@ router.post('/:id/invoice', authMiddleware, (req, res) => {
       doc.text(item.product_sku || '-', col.sku, y + 2);
       doc.text(String(item.quantity), col.qty, y + 2);
       doc.text(item.unit_price.toFixed(2), col.price, y + 2);
-      doc.text(item.line_total.toFixed(2), col.total, y + 2);
+      doc.text(item.total.toFixed(2), col.total, y + 2);
       y += 20;
     });
 

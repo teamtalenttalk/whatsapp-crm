@@ -1,39 +1,166 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { disconnectSocket } from "@/lib/socket";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
-  { href: "/dashboard/devices", label: "Devices", icon: DevicesIcon },
-  { href: "/dashboard/send-message", label: "Send Message", icon: SendIcon },
-  { href: "/dashboard/campaigns", label: "Campaigns", icon: CampaignsIcon },
-  { href: "/dashboard/welcome-messages", label: "Welcome Message", icon: SmileIcon },
-  { href: "/dashboard/auto-replies", label: "Auto Reply", icon: ReplyIcon },
-  { href: "/dashboard/templates", label: "Templates", icon: TemplateIcon },
-  { href: "/dashboard/contacts", label: "Contacts", icon: ContactsIcon },
-  { href: "/dashboard/unsubscribes", label: "Unsubscribes", icon: UserMinusIcon },
-  { href: "/dashboard/number-filter", label: "Number Filter", icon: FilterIcon },
-  { href: "/dashboard/group-grabber", label: "Group Grabber", icon: GroupGrabberIcon },
-  { href: "/dashboard/report", label: "Report", icon: ChartIcon },
-  { href: "/dashboard/received-messages", label: "Received Messages", icon: InboxIcon },
-  { href: "/dashboard/chats", label: "Chats", icon: ChatsIcon },
-  { href: "/dashboard/chatbot", label: "Chatbot", icon: ChatbotIcon },
-  { href: "/dashboard/integrations", label: "Integrations", icon: IntegrationsIcon },
-  { href: "/dashboard/products", label: "Products", icon: ProductsIcon },
-  { href: "/dashboard/sales", label: "Sales", icon: SalesIcon },
-  { href: "/dashboard/meetings", label: "Meetings", icon: MeetingsIcon },
-  { href: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
+/* ── Navigation structure ─────────────────────────────────────────── */
+
+type NavItem = { href: string; label: string; icon: () => JSX.Element };
+
+type NavGroup = {
+  key: string;
+  label: string;
+  icon: () => JSX.Element;
+  items: NavItem[];
+};
+
+type NavEntry =
+  | { type: "item"; item: NavItem }
+  | { type: "group"; group: NavGroup };
+
+const navStructure: NavEntry[] = [
+  // 1. Dashboard (standalone)
+  { type: "item", item: { href: "/dashboard", label: "Dashboard", icon: DashboardIcon } },
+
+  // 2. Messaging
+  {
+    type: "group",
+    group: {
+      key: "messaging",
+      label: "Messaging",
+      icon: MessagingGroupIcon,
+      items: [
+        { href: "/dashboard/send-message", label: "Send Message", icon: SendIcon },
+        { href: "/dashboard/chats", label: "Chats", icon: ChatsIcon },
+        { href: "/dashboard/received-messages", label: "Received Messages", icon: InboxIcon },
+      ],
+    },
+  },
+
+  // 3. Automation
+  {
+    type: "group",
+    group: {
+      key: "automation",
+      label: "Automation",
+      icon: AutomationGroupIcon,
+      items: [
+        { href: "/dashboard/chatbot", label: "Chatbot", icon: ChatbotIcon },
+        { href: "/dashboard/auto-replies", label: "Auto Reply", icon: ReplyIcon },
+        { href: "/dashboard/welcome-messages", label: "Welcome Message", icon: SmileIcon },
+        { href: "/dashboard/templates", label: "Templates", icon: TemplateIcon },
+      ],
+    },
+  },
+
+  // 4. Campaigns
+  {
+    type: "group",
+    group: {
+      key: "campaigns",
+      label: "Campaigns",
+      icon: CampaignsIcon,
+      items: [
+        { href: "/dashboard/campaigns", label: "Campaigns", icon: CampaignsIcon },
+        { href: "/dashboard/contacts", label: "Contacts", icon: ContactsIcon },
+        { href: "/dashboard/unsubscribes", label: "Unsubscribes", icon: UserMinusIcon },
+        { href: "/dashboard/number-filter", label: "Number Filter", icon: FilterIcon },
+        { href: "/dashboard/group-grabber", label: "Group Grabber", icon: GroupGrabberIcon },
+      ],
+    },
+  },
+
+  // 5. Sales & Commerce
+  {
+    type: "group",
+    group: {
+      key: "sales",
+      label: "Sales & Commerce",
+      icon: SalesGroupIcon,
+      items: [
+        { href: "/dashboard/products", label: "Products", icon: ProductsIcon },
+        { href: "/dashboard/sales", label: "Sales", icon: SalesIcon },
+      ],
+    },
+  },
+
+  // 6. Meetings
+  {
+    type: "group",
+    group: {
+      key: "meetings",
+      label: "Meetings",
+      icon: MeetingsIcon,
+      items: [
+        { href: "/dashboard/meetings", label: "Meetings", icon: MeetingsIcon },
+      ],
+    },
+  },
+
+  // 7. Reports
+  {
+    type: "group",
+    group: {
+      key: "reports",
+      label: "Reports",
+      icon: ChartIcon,
+      items: [
+        { href: "/dashboard/report", label: "Report", icon: ChartIcon },
+      ],
+    },
+  },
+
+  // 8. Integrations
+  {
+    type: "group",
+    group: {
+      key: "integrations",
+      label: "Integrations",
+      icon: IntegrationsIcon,
+      items: [
+        { href: "/dashboard/integrations", label: "Integrations", icon: IntegrationsIcon },
+        { href: "/dashboard/devices", label: "Devices", icon: DevicesIcon },
+      ],
+    },
+  },
 ];
+
+const STORAGE_KEY = "sidebar_collapsed_sections";
+
+function loadCollapsed(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCollapsed(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ── Layout Component ─────────────────────────────────────────────── */
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { tenant, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  // Load collapsed state from localStorage on mount
+  useEffect(() => {
+    setCollapsed(loadCollapsed());
+  }, []);
 
   useEffect(() => {
     if (!loading && !tenant) {
@@ -45,6 +172,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     disconnectSocket();
     logout();
     router.replace("/login");
+  }
+
+  const toggleGroup = useCallback((key: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      saveCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  // Check if any child route of a group is active
+  function isGroupActive(group: NavGroup): boolean {
+    return group.items.some((item) =>
+      item.href === "/dashboard"
+        ? pathname === "/dashboard"
+        : pathname.startsWith(item.href)
+    );
+  }
+
+  // A group is collapsed only if explicitly collapsed AND none of its children are active
+  function isGroupCollapsed(group: NavGroup): boolean {
+    if (isGroupActive(group)) return false;
+    return !!collapsed[group.key];
   }
 
   if (loading) {
@@ -76,24 +226,101 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
-            const isActive =
-              item.href === "/dashboard"
-                ? pathname === "/dashboard"
-                : pathname.startsWith(item.href);
+          {navStructure.map((entry) => {
+            if (entry.type === "item") {
+              const item = entry.item;
+              const isActive =
+                item.href === "/dashboard"
+                  ? pathname === "/dashboard"
+                  : pathname.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`sidebar-link ${isActive ? "active" : ""}`}
+                >
+                  <item.icon />
+                  {item.label}
+                </Link>
+              );
+            }
+
+            // Group
+            const { group } = entry;
+            const groupCollapsed = isGroupCollapsed(group);
+            const groupActive = isGroupActive(group);
+
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setSidebarOpen(false)}
-                className={`sidebar-link ${isActive ? "active" : ""}`}
-              >
-                <item.icon />
-                {item.label}
-              </Link>
+              <div key={group.key} className="pt-3">
+                {/* Group header */}
+                <button
+                  onClick={() => toggleGroup(group.key)}
+                  className={`w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold uppercase tracking-wider rounded-md transition-colors ${
+                    groupActive
+                      ? "text-slate-300"
+                      : "text-slate-500 hover:text-slate-400"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <group.icon />
+                    {group.label}
+                  </span>
+                  <ChevronIcon collapsed={groupCollapsed} />
+                </button>
+
+                {/* Group items with smooth collapse */}
+                <div
+                  className="overflow-hidden transition-all duration-200 ease-in-out"
+                  style={{
+                    maxHeight: groupCollapsed ? 0 : `${group.items.length * 44}px`,
+                    opacity: groupCollapsed ? 0 : 1,
+                  }}
+                >
+                  <div className="mt-1 space-y-0.5">
+                    {group.items.map((item) => {
+                      const isActive =
+                        item.href === "/dashboard"
+                          ? pathname === "/dashboard"
+                          : pathname.startsWith(item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setSidebarOpen(false)}
+                          className={`sidebar-link pl-9 ${isActive ? "active" : ""}`}
+                        >
+                          <item.icon />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
             );
           })}
         </nav>
+
+        {/* Settings (standalone, at bottom) */}
+        <div className="px-3 pb-2 space-y-1">
+          <Link
+            href="/dashboard/alert-settings"
+            onClick={() => setSidebarOpen(false)}
+            className={`sidebar-link ${pathname.startsWith("/dashboard/alert-settings") ? "active" : ""}`}
+          >
+            <AlertSettingsIcon />
+            Alert Settings
+          </Link>
+          <Link
+            href="/dashboard/settings"
+            onClick={() => setSidebarOpen(false)}
+            className={`sidebar-link ${pathname.startsWith("/dashboard/settings") ? "active" : ""}`}
+          >
+            <SettingsIcon />
+            Settings
+          </Link>
+        </div>
 
         <div className="px-3 py-4 border-t border-slate-700">
           <div className="px-4 py-2 text-xs text-slate-500 truncate">{tenant.email}</div>
@@ -127,7 +354,49 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 }
 
-/* Icon components */
+/* ── Chevron Icon (collapse toggle) ───────────────────────────────── */
+
+function ChevronIcon({ collapsed }: { collapsed: boolean }) {
+  return (
+    <svg
+      className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? "-rotate-90" : "rotate-0"}`}
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
+/* ── Group header icons ───────────────────────────────────────────── */
+
+function MessagingGroupIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  );
+}
+
+function AutomationGroupIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+    </svg>
+  );
+}
+
+function SalesGroupIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 10.5V6a3.75 3.75 0 10-7.5 0v4.5m11.356-1.993l1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 01-1.12-1.243l1.264-12A1.125 1.125 0 015.513 7.5h12.974c.576 0 1.059.435 1.119 1.007zM8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm7.5 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+    </svg>
+  );
+}
+
+/* ── Existing icon components (unchanged) ─────────────────────────── */
+
 function DashboardIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -276,6 +545,14 @@ function MeetingsIcon() {
   return (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
+    </svg>
+  );
+}
+
+function AlertSettingsIcon() {
+  return (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
     </svg>
   );
 }

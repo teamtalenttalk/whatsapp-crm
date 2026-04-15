@@ -182,7 +182,9 @@ function checkInventoryAlerts() {
 }
 
 // ─── Meeting Reminders ────────────────────────────────────────────────────────
-// Sends WhatsApp reminder to contacts 1 day before their meeting
+// Sends WhatsApp reminder to contacts:
+// 1) 1 day before their meeting (evening before)
+// 2) Morning of the meeting day (early morning)
 function checkMeetingReminders() {
   const tenants = db.prepare('SELECT id FROM tenants').all();
 
@@ -191,18 +193,18 @@ function checkMeetingReminders() {
       const conn = getConnectionByTenant(tenant.id);
       if (!conn || conn.status !== 'connected') continue;
 
-      // Find meetings scheduled for tomorrow that haven't been reminded yet
+      // ── 1-day-before reminders ──
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = tomorrow.toISOString().slice(0, 10);
 
-      const meetings = db.prepare(`
+      const tomorrowMeetings = db.prepare(`
         SELECT id, contact_phone, contact_name, date, time, service, notes, duration_minutes, location, meeting_link
         FROM appointments
         WHERE tenant_id = ? AND date = ? AND status = 'pending' AND reminder_sent = 0
       `).all(tenant.id, tomorrowStr);
 
-      for (const meeting of meetings) {
+      for (const meeting of tomorrowMeetings) {
         if (!meeting.contact_phone) continue;
 
         let message = `📅 *Meeting Reminder*\n\n`;
@@ -218,13 +220,49 @@ function checkMeetingReminders() {
 
         sendMessage(tenant.id, meeting.contact_phone, message)
           .then(() => {
-            // Mark as reminded
             db.prepare('UPDATE appointments SET reminder_sent = 1 WHERE id = ?').run(meeting.id);
-            console.log(`[Meeting Reminder] Sent to ${meeting.contact_phone} for meeting ${meeting.id}`);
+            console.log(`[Meeting Reminder] 1-day-before sent to ${meeting.contact_phone} for meeting ${meeting.id}`);
           })
           .catch(err => {
             console.error(`[Meeting Reminder] Failed for meeting ${meeting.id}:`, err.message);
           });
+      }
+
+      // ── Morning-of reminders (send between 7-9 AM) ──
+      const now = new Date();
+      const hour = now.getHours();
+      if (hour >= 7 && hour < 9) {
+        const todayStr = now.toISOString().slice(0, 10);
+
+        const todayMeetings = db.prepare(`
+          SELECT id, contact_phone, contact_name, date, time, service, notes, duration_minutes, location, meeting_link
+          FROM appointments
+          WHERE tenant_id = ? AND date = ? AND status = 'pending' AND morning_reminder_sent = 0
+        `).all(tenant.id, todayStr);
+
+        for (const meeting of todayMeetings) {
+          if (!meeting.contact_phone) continue;
+
+          let message = `🌅 *Today's Meeting Reminder*\n\n`;
+          message += `Hi${meeting.contact_name ? ` ${meeting.contact_name}` : ''},\n\n`;
+          message += `Just a reminder — you have a meeting today:\n\n`;
+          message += `🕐 *Time:* ${meeting.time}`;
+          if (meeting.duration_minutes) message += ` (${meeting.duration_minutes} min)`;
+          message += '\n';
+          if (meeting.service) message += `📋 *Service:* ${meeting.service}\n`;
+          if (meeting.location) message += `📍 *Location:* ${meeting.location}\n`;
+          if (meeting.meeting_link) message += `🔗 *Link:* ${meeting.meeting_link}\n`;
+          message += `\nSee you soon!`;
+
+          sendMessage(tenant.id, meeting.contact_phone, message)
+            .then(() => {
+              db.prepare('UPDATE appointments SET morning_reminder_sent = 1 WHERE id = ?').run(meeting.id);
+              console.log(`[Meeting Reminder] Morning sent to ${meeting.contact_phone} for meeting ${meeting.id}`);
+            })
+            .catch(err => {
+              console.error(`[Meeting Reminder] Morning failed for meeting ${meeting.id}:`, err.message);
+            });
+        }
       }
     } catch (err) {
       console.error(`[Meeting Reminder] Error for tenant ${tenant.id}:`, err.message);
@@ -319,6 +357,27 @@ function checkDailySummary() {
         if (meetingStats.pending > 0) message += `  • Still pending: ${meetingStats.pending} ⏳\n`;
       } else {
         message += `  No meetings today.\n`;
+      }
+
+      // Tomorrow's upcoming meetings
+      const tomorrowDate = new Date(now);
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrowStr = tomorrowDate.toISOString().slice(0, 10);
+
+      const tomorrowMeetings = db.prepare(`
+        SELECT contact_name, time, service
+        FROM appointments
+        WHERE tenant_id = ? AND date = ? AND status = 'pending'
+        ORDER BY time ASC
+      `).all(tenant.id, tomorrowStr);
+
+      if (tomorrowMeetings.length > 0) {
+        message += `\n📆 *Tomorrow's Meetings (${tomorrowMeetings.length}):*\n`;
+        tomorrowMeetings.forEach(m => {
+          message += `  • ${m.time} — ${m.contact_name || 'Unknown'}`;
+          if (m.service) message += ` (${m.service})`;
+          message += '\n';
+        });
       }
 
       // Inventory warnings

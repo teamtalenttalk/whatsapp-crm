@@ -420,6 +420,26 @@ function initDB() {
     db.exec(`ALTER TABLE campaigns ADD COLUMN updated_at TEXT`);
   } catch (e) { /* column already exists */ }
 
+  // Add new contact profile columns
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN photo_url TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN date_of_birth TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN anniversary TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN gender TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN emergency_contact_1 TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE contacts ADD COLUMN emergency_contact_2 TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+
   // Add inventory/meeting alert settings columns
   try {
     db.exec(`ALTER TABLE settings ADD COLUMN inventory_alerts_enabled INTEGER DEFAULT 1`);
@@ -432,6 +452,11 @@ function initDB() {
   } catch (e) { /* column already exists */ }
   try {
     db.exec(`ALTER TABLE settings ADD COLUMN alert_phone TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+
+  // Add morning_reminder_sent to appointments
+  try {
+    db.exec(`ALTER TABLE appointments ADD COLUMN morning_reminder_sent INTEGER DEFAULT 0`);
   } catch (e) { /* column already exists */ }
 
   console.log('Database initialized');

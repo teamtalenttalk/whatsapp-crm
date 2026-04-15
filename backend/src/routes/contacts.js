@@ -37,15 +37,17 @@ router.get('/:id', authMiddleware, (req, res) => {
 
 // Create contact
 router.post('/', authMiddleware, (req, res) => {
-  const { phone, name, email, tags, notes, stage } = req.body;
+  const { phone, name, email, tags, notes, stage, photo_url, date_of_birth, anniversary, gender, emergency_contact_1, emergency_contact_2 } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone number required' });
+  if (!date_of_birth) return res.status(400).json({ error: 'Date of birth is required' });
 
   const existing = db.prepare('SELECT id FROM contacts WHERE tenant_id = ? AND phone = ?').get(req.tenant.id, phone);
   if (existing) return res.status(409).json({ error: 'Contact already exists' });
 
   const id = uuid();
-  db.prepare('INSERT INTO contacts (id, tenant_id, phone, name, email, tags, notes, stage) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id, req.tenant.id, phone, name || phone, email || null, JSON.stringify(tags || []), notes || null, stage || 'new'
+  db.prepare('INSERT INTO contacts (id, tenant_id, phone, name, email, tags, notes, stage, photo_url, date_of_birth, anniversary, gender, emergency_contact_1, emergency_contact_2) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, req.tenant.id, phone, name || phone, email || null, JSON.stringify(tags || []), notes || null, stage || 'new',
+    photo_url || '', date_of_birth, anniversary || '', gender || '', emergency_contact_1 || '', emergency_contact_2 || ''
   );
   const contact = db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
   res.json(contact);
@@ -53,12 +55,14 @@ router.post('/', authMiddleware, (req, res) => {
 
 // Update contact
 router.put('/:id', authMiddleware, (req, res) => {
-  const { name, email, tags, notes, stage } = req.body;
+  const { name, email, tags, notes, stage, photo_url, date_of_birth, anniversary, gender, emergency_contact_1, emergency_contact_2 } = req.body;
   const contact = db.prepare('SELECT * FROM contacts WHERE id = ? AND tenant_id = ?').get(req.params.id, req.tenant.id);
   if (!contact) return res.status(404).json({ error: 'Contact not found' });
 
-  db.prepare('UPDATE contacts SET name = ?, email = ?, tags = ?, notes = ?, stage = ?, updated_at = datetime("now") WHERE id = ?').run(
-    name || contact.name, email || contact.email, JSON.stringify(tags || JSON.parse(contact.tags || '[]')), notes ?? contact.notes, stage || contact.stage, req.params.id
+  db.prepare('UPDATE contacts SET name = ?, email = ?, tags = ?, notes = ?, stage = ?, photo_url = ?, date_of_birth = ?, anniversary = ?, gender = ?, emergency_contact_1 = ?, emergency_contact_2 = ?, updated_at = datetime("now") WHERE id = ?').run(
+    name || contact.name, email || contact.email, JSON.stringify(tags || JSON.parse(contact.tags || '[]')), notes ?? contact.notes, stage || contact.stage,
+    photo_url ?? contact.photo_url, date_of_birth ?? contact.date_of_birth, anniversary ?? contact.anniversary, gender ?? contact.gender,
+    emergency_contact_1 ?? contact.emergency_contact_1, emergency_contact_2 ?? contact.emergency_contact_2, req.params.id
   );
   const updated = db.prepare('SELECT * FROM contacts WHERE id = ?').get(req.params.id);
   res.json(updated);
