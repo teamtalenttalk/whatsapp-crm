@@ -338,7 +338,27 @@ function initDB() {
       created_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Calendars (multiple calendars per tenant)
+    CREATE TABLE IF NOT EXISTS calendars (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      color TEXT DEFAULT '#22c55e',
+      timezone TEXT DEFAULT 'UTC',
+      working_hours_start TEXT DEFAULT '09:00',
+      working_hours_end TEXT DEFAULT '18:00',
+      slot_duration INTEGER DEFAULT 30,
+      break_start TEXT DEFAULT '12:00',
+      break_end TEXT DEFAULT '13:00',
+      working_days TEXT DEFAULT '1,2,3,4,5',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes for new tables
+    CREATE INDEX IF NOT EXISTS idx_calendars_tenant ON calendars(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_products_sku ON products(tenant_id, sku);
     CREATE INDEX IF NOT EXISTS idx_products_category ON products(tenant_id, category);
@@ -457,6 +477,11 @@ function initDB() {
   // Add morning_reminder_sent to appointments
   try {
     db.exec(`ALTER TABLE appointments ADD COLUMN morning_reminder_sent INTEGER DEFAULT 0`);
+  } catch (e) { /* column already exists */ }
+
+  // Add calendar_id to appointments
+  try {
+    db.exec(`ALTER TABLE appointments ADD COLUMN calendar_id TEXT`);
   } catch (e) { /* column already exists */ }
 
   console.log('Database initialized');
