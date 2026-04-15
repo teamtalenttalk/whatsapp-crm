@@ -271,6 +271,84 @@ function initDB() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Products / Inventory
+    CREATE TABLE IF NOT EXISTS products (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      sku TEXT,
+      category TEXT DEFAULT '',
+      description TEXT DEFAULT '',
+      cost_price REAL DEFAULT 0,
+      selling_price REAL DEFAULT 0,
+      stock_qty INTEGER DEFAULT 0,
+      min_stock INTEGER DEFAULT 5,
+      unit TEXT DEFAULT 'pcs',
+      image_url TEXT DEFAULT '',
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, sku)
+    );
+
+    -- Stock movement history
+    CREATE TABLE IF NOT EXISTS stock_movements (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      product_id TEXT NOT NULL REFERENCES products(id),
+      type TEXT NOT NULL CHECK(type IN ('add', 'subtract', 'set', 'sale', 'sale_reverse')),
+      quantity INTEGER NOT NULL,
+      previous_qty INTEGER NOT NULL,
+      new_qty INTEGER NOT NULL,
+      reason TEXT DEFAULT '',
+      reference_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Sales orders
+    CREATE TABLE IF NOT EXISTS sales (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      invoice_number TEXT,
+      customer_name TEXT DEFAULT '',
+      customer_phone TEXT DEFAULT '',
+      customer_email TEXT DEFAULT '',
+      subtotal REAL DEFAULT 0,
+      tax_rate REAL DEFAULT 0,
+      tax_amount REAL DEFAULT 0,
+      discount REAL DEFAULT 0,
+      total REAL DEFAULT 0,
+      status TEXT DEFAULT 'completed',
+      payment_method TEXT DEFAULT 'cash',
+      notes TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Sale line items
+    CREATE TABLE IF NOT EXISTS sale_items (
+      id TEXT PRIMARY KEY,
+      sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+      tenant_id TEXT NOT NULL,
+      product_id TEXT NOT NULL REFERENCES products(id),
+      product_name TEXT,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      unit_price REAL NOT NULL DEFAULT 0,
+      total REAL NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- Indexes for new tables
+    CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_products_sku ON products(tenant_id, sku);
+    CREATE INDEX IF NOT EXISTS idx_products_category ON products(tenant_id, category);
+    CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id);
+    CREATE INDEX IF NOT EXISTS idx_stock_movements_tenant ON stock_movements(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_tenant ON sales(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(tenant_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON sale_items(sale_id);
+    CREATE INDEX IF NOT EXISTS idx_sale_items_product ON sale_items(product_id);
+
     -- Indexes
     CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_messages_tenant ON messages(tenant_id);

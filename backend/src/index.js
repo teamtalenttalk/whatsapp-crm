@@ -34,6 +34,9 @@ const settingsRoutes = require('./routes/settings');
 const sendMessageRoutes = require('./routes/send-message');
 const campaignRoutes = require('./routes/campaigns');
 const uploadRoutes = require('./routes/upload');
+const productsRoutes = require('./routes/products');
+const salesRoutes = require('./routes/sales');
+const meetingsRoutes = require('./routes/meetings');
 const { startScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -97,6 +100,9 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/send-message', sendMessageRoutes);
 app.use('/api/campaigns', campaignRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/products', productsRoutes);
+app.use('/api/sales', salesRoutes);
+app.use('/api/meetings', meetingsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'whatsapp-crm' }));
