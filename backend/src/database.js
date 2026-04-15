@@ -420,6 +420,20 @@ function initDB() {
     db.exec(`ALTER TABLE campaigns ADD COLUMN updated_at TEXT`);
   } catch (e) { /* column already exists */ }
 
+  // Add inventory/meeting alert settings columns
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN inventory_alerts_enabled INTEGER DEFAULT 1`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN meeting_reminders_enabled INTEGER DEFAULT 1`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN daily_summary_enabled INTEGER DEFAULT 1`);
+  } catch (e) { /* column already exists */ }
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN alert_phone TEXT DEFAULT ''`);
+  } catch (e) { /* column already exists */ }
+
   console.log('Database initialized');
 }
 
