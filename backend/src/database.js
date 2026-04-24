@@ -357,6 +357,67 @@ function initDB() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Customer Segments (Phase 6)
+    CREATE TABLE IF NOT EXISTS segments (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      rules TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS segment_contacts (
+      segment_id TEXT NOT NULL REFERENCES segments(id),
+      contact_id TEXT NOT NULL REFERENCES contacts(id),
+      PRIMARY KEY (segment_id, contact_id)
+    );
+
+    -- Customer Journeys (Phase 6)
+    CREATE TABLE IF NOT EXISTS journeys (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      stages TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS journey_contacts (
+      id TEXT PRIMARY KEY,
+      journey_id TEXT NOT NULL REFERENCES journeys(id),
+      contact_id TEXT NOT NULL REFERENCES contacts(id),
+      current_stage TEXT DEFAULT '',
+      status TEXT DEFAULT 'active',
+      entered_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- AI Chat Logs (Phase 6)
+    CREATE TABLE IF NOT EXISTS ai_chat_logs (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      contact_id TEXT,
+      user_message TEXT NOT NULL,
+      ai_response TEXT NOT NULL,
+      source TEXT DEFAULT 'demo',
+      model TEXT DEFAULT 'demo',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    -- AI Training Data (Phase 6)
+    CREATE TABLE IF NOT EXISTS ai_training_data (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL REFERENCES tenants(id),
+      question TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      category TEXT DEFAULT 'general',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
     -- Indexes for new tables
     CREATE INDEX IF NOT EXISTS idx_calendars_tenant ON calendars(tenant_id);
     CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id);

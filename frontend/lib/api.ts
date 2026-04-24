@@ -1,4 +1,4 @@
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8097';
+const API = '';
 
 function getToken() {
   if (typeof window === 'undefined') return null;
@@ -198,3 +198,43 @@ export async function updateIntegration(provider: string, data: Record<string, u
 // Settings
 export async function getSettings() { return apiFetch('/api/settings'); }
 export async function updateSettings(data: Record<string, unknown>) { return apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(data) }); }
+
+// AI Chatbot (Phase 6)
+export async function aiChatRespond(message: string, contactId?: string, context?: Record<string, unknown>) {
+  return apiFetch('/api/ai-chat/respond', { method: 'POST', body: JSON.stringify({ message, contact_id: contactId, context }) });
+}
+export async function aiChatTrain(trainingData: { question: string; answer: string }[], businessContext?: string) {
+  return apiFetch('/api/ai-chat/train', { method: 'PUT', body: JSON.stringify({ training_data: trainingData, business_context: businessContext }) });
+}
+export async function getAiChatAnalytics() { return apiFetch('/api/ai-chat/analytics'); }
+
+// Segments (Phase 6)
+export async function getSegments() { return apiFetch('/api/segments'); }
+export async function createSegment(data: Record<string, unknown>) { return apiFetch('/api/segments', { method: 'POST', body: JSON.stringify(data) }); }
+export async function updateSegment(id: string, data: Record<string, unknown>) { return apiFetch(`/api/segments/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+export async function deleteSegment(id: string) { return apiFetch(`/api/segments/${id}`, { method: 'DELETE' }); }
+export async function getSegmentContacts(id: string) { return apiFetch(`/api/segments/${id}/contacts`); }
+
+// Campaign Analytics (Phase 6)
+export async function getCampaignAnalytics(id: string) { return apiFetch(`/api/campaigns/${id}/analytics`); }
+export async function getCampaignComparison() { return apiFetch('/api/campaigns/comparison'); }
+
+// Customer Journeys (Phase 6)
+export async function getJourneys() { return apiFetch('/api/journeys'); }
+export async function createJourney(data: Record<string, unknown>) { return apiFetch('/api/journeys', { method: 'POST', body: JSON.stringify(data) }); }
+export async function getJourney(id: string) { return apiFetch(`/api/journeys/${id}`); }
+export async function deleteJourney(id: string) { return apiFetch(`/api/journeys/${id}`, { method: 'DELETE' }); }
+export async function getJourneyContacts(id: string, stage?: string) {
+  const params = new URLSearchParams();
+  if (stage) params.set('stage', stage);
+  return apiFetch(`/api/journeys/${id}/contacts?${params}`);
+}
+
+// Funnels (Phase 6)
+export async function getConversionFunnel(from?: string, to?: string) {
+  const params = new URLSearchParams();
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  return apiFetch(`/api/funnels/conversion?${params}`);
+}
+export async function getDropOffAnalysis() { return apiFetch('/api/funnels/drop-off'); }

@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+*.log
+backend/data/*.db
+backend/wa-sessions
+.env
+.env.local
+*.png
+*.jpg

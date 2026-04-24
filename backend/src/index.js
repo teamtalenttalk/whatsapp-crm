@@ -38,6 +38,15 @@ const productsRoutes = require('./routes/products');
 const salesRoutes = require('./routes/sales');
 const meetingsRoutes = require('./routes/meetings');
 const calendarsRoutes = require('./routes/calendars');
+const healthRoutes = require('./routes/health');
+const docsRoutes = require('./routes/docs');
+const aiChatRoutes = require('./routes/ai-chat');
+const segmentsRoutes = require('./routes/segments');
+const campaignAnalyticsRoutes = require('./routes/campaign-analytics');
+const journeyRoutes = require('./routes/journey');
+const funnelsRoutes = require('./routes/funnels');
+const { generalLimiter, messagingLimiter, bulkLimiter } = require('./middleware/rateLimiter');
+const { ensurePerformanceIndexes } = require('./database-indexes');
 const { startScheduler } = require('./services/scheduler');
 
 const app = express();
@@ -47,17 +56,18 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3003';
 
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:3003', FRONTEND_URL, /\.trycloudflare\.com$/],
+    origin: ['http://localhost:3003', 'http://localhost:3062', FRONTEND_URL, /\.trycloudflare\.com$/],
     credentials: true,
   },
 });
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3003', FRONTEND_URL, /\.trycloudflare\.com$/],
+  origin: ['http://localhost:3003', 'http://localhost:3062', FRONTEND_URL, /\.trycloudflare\.com$/],
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
+app.use('/api/', generalLimiter);
 
 // Static file serving for uploads
 const path = require('path');
@@ -65,6 +75,9 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'data', 'uploads')
 
 // Init database
 initDB();
+
+// Ensure performance indexes (Phase 5)
+try { ensurePerformanceIndexes(); } catch (e) { console.log('[Indexes] Will retry after Phase 6 tables exist'); }
 
 // Set Socket.IO for WhatsApp service
 setSocketIO(io);
@@ -106,8 +119,20 @@ app.use('/api/sales', salesRoutes);
 app.use('/api/meetings', meetingsRoutes);
 app.use('/api/calendars', calendarsRoutes);
 
-// Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok', service: 'whatsapp-crm' }));
+// Phase 5: Health check & API docs (no auth required)
+app.use('/api/health', healthRoutes);
+app.use('/api/docs', docsRoutes);
+
+// Phase 6: AI Chatbot, Segments, Campaign Analytics, Journeys, Funnels
+app.use('/api/ai-chat', aiChatRoutes);
+app.use('/api/segments', segmentsRoutes);
+app.use('/api/campaigns', campaignAnalyticsRoutes);
+app.use('/api/journeys', journeyRoutes);
+app.use('/api/funnels', funnelsRoutes);
+
+// Apply stricter rate limits to messaging/bulk endpoints
+app.use('/api/send-message', messagingLimiter);
+app.use('/api/campaigns/*/start', bulkLimiter);
 
 const PORT = process.env.PORT || 8097;
 server.listen(PORT, '0.0.0.0', () => {
